@@ -29,6 +29,9 @@
 # define M_PI           3.14159265358979323846
 #endif
 
+#if ENABLE_THREADS
+static pthread_mutex_t global_colormap_lock = PTHREAD_MUTEX_INITIALIZER;
+#endif
 
 /******
  * color transforms
@@ -628,6 +631,9 @@ static void scale_image_prepare(scale_context* sctx) {
         sctx->kd3 = &sctx->local_kd3;
         kd3_init_build(sctx->kd3, NULL, sctx->gfi->local);
     } else {
+#if ENABLE_THREADS
+        pthread_mutex_lock(&global_colormap_lock);
+#endif
         sctx->kd3 = &sctx->global_kd3;
         if (!sctx->kd3->ks)
             kd3_init_build(sctx->kd3, NULL, sctx->gfs->global);
@@ -647,6 +653,11 @@ static void scale_image_prepare(scale_context* sctx) {
                       sctx->xscr.width, sctx->xscr.height);
     }
     ksscreen_apply(&sctx->iscr, sctx->gfi, sctx->kd3->ks);
+
+#if ENABLE_THREADS
+    if (!sctx->gfi->local)
+        pthread_mutex_unlock(&global_colormap_lock);
+#endif
 }
 
 static void scale_image_output_row(scale_context* sctx, scale_color* sc,
@@ -716,6 +727,19 @@ static void scale_image_complete(scale_context* sctx, Gif_Image* gfo) {
     int yo, xo, transparent = sctx->gfi->transparent;
     unsigned dist, dist2, max_dist;
 
+#if ENABLE_THREADS
+    if (!sctx->gfi->local) {
+        pthread_mutex_lock(&global_colormap_lock);
+        kd3_cleanup(sctx->kd3);
+        sctx->kd3 = &sctx->global_kd3;
+        kd3_init_build(sctx->kd3, NULL, sctx->gfs->global);
+        kd3_enable_all(sctx->kd3);
+        if (sctx->gfi->transparent >= 0
+            && sctx->gfi->transparent < sctx->kd3->nitems)
+            kd3_disable(sctx->kd3, sctx->gfi->transparent);
+    }
+#endif
+
  retry:
     max_dist = 0;
     /* look up palette for output screen */
@@ -747,6 +771,11 @@ static void scale_image_complete(scale_context* sctx, Gif_Image* gfo) {
             && scale_image_add_colors(sctx, gfo))
             goto retry;
     }
+
+#if ENABLE_THREADS
+    if (!sctx->gfi->local)
+        pthread_mutex_unlock(&global_colormap_lock);
+#endif
 
     /* apply disposal to sctx->iscr and sctx->oscr */
     if (sctx->imageno != sctx->gfs->nimages - 1) {
