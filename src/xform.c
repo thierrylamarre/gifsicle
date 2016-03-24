@@ -1194,6 +1194,8 @@ void* scale_image_threaded(void* args) {
     do {
         sctx.imageno = ctx->imageno;
         sctx.gfi = ctx->gfs->images[ctx->imageno];
+        if (!sctx.gfi->local)
+            sctx.gfi->local = Gif_CopyColormap(sctx.gfs->global);
         scale_image(&sctx, ctx->method);
 #if HAVE___SYNC_ADD_AND_FETCH
         ctx->imageno = __sync_add_and_fetch(ctx->next_imageno, 1);
